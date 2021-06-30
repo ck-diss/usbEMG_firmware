@@ -1,0 +1,290 @@
+/*******************************************************************************
+  MPLAB Harmony Application Source File
+  
+  Company:
+    Microchip Technology Inc.
+  
+  File Name:
+    app.c
+
+  Summary:
+    This file contains the source code for the MPLAB Harmony application.
+
+  Description:
+    This file contains the source code for the MPLAB Harmony application.  It 
+    implements the logic of the application's state machine and it may call 
+    API routines of other MPLAB Harmony modules in the system, such as drivers,
+    system services, and middleware.  However, it does not call any of the
+    system interfaces (such as the "Initialize" and "Tasks" functions) of any of
+    the modules in the system or make any assumptions about when those functions
+    are called.  That is the responsibility of the configuration-specific system
+    files.
+ *******************************************************************************/
+
+// DOM-IGNORE-BEGIN
+/*******************************************************************************
+Copyright (c) 2013-2014 released Microchip Technology Inc.  All rights reserved.
+
+Microchip licenses to you the right to use, modify, copy and distribute
+Software only when embedded on a Microchip microcontroller or digital signal
+controller that is integrated into your product or third party product
+(pursuant to the sublicense terms in the accompanying license agreement).
+
+You should refer to the license agreement accompanying this Software for
+additional information regarding your rights and obligations.
+
+SOFTWARE AND DOCUMENTATION ARE PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND,
+EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION, ANY WARRANTY OF
+MERCHANTABILITY, TITLE, NON-INFRINGEMENT AND FITNESS FOR A PARTICULAR PURPOSE.
+IN NO EVENT SHALL MICROCHIP OR ITS LICENSORS BE LIABLE OR OBLIGATED UNDER
+CONTRACT, NEGLIGENCE, STRICT LIABILITY, CONTRIBUTION, BREACH OF WARRANTY, OR
+OTHER LEGAL EQUITABLE THEORY ANY DIRECT OR INDIRECT DAMAGES OR EXPENSES
+INCLUDING BUT NOT LIMITED TO ANY INCIDENTAL, SPECIAL, INDIRECT, PUNITIVE OR
+CONSEQUENTIAL DAMAGES, LOST PROFITS OR LOST DATA, COST OF PROCUREMENT OF
+SUBSTITUTE GOODS, TECHNOLOGY, SERVICES, OR ANY CLAIMS BY THIRD PARTIES
+(INCLUDING BUT NOT LIMITED TO ANY DEFENSE THEREOF), OR OTHER SIMILAR COSTS.
+ *******************************************************************************/
+// DOM-IGNORE-END
+
+
+// *****************************************************************************
+// *****************************************************************************
+// Section: Included Files 
+// *****************************************************************************
+// *****************************************************************************
+
+#include "app.h"
+
+// *****************************************************************************
+// *****************************************************************************
+// Section: Global Data Definitions
+// *****************************************************************************
+// *****************************************************************************
+
+// *****************************************************************************
+/* Application Data
+
+  Summary:
+    Holds application data
+
+  Description:
+    This structure holds the application's data.
+
+  Remarks:
+    This structure should be initialized by the APP_Initialize function.
+    
+    Application strings and buffers are be defined outside this structure.
+*/
+
+APP_DATA appData;
+USB_DATA usbAppData;
+SPI_DATA spiAppData;
+I2C_STATES i2cAppState;
+
+bool startI2CTransfer;
+
+
+static char firstTriggerFlag = 0;
+
+unsigned int InitChk = 0;
+
+unsigned char i;
+unsigned int timerVal;
+
+
+// *****************************************************************************
+// *****************************************************************************
+// Section: Application Callback Functions
+// *****************************************************************************
+// *****************************************************************************
+
+void ISR_Callback_2 ( uintptr_t context, uint32_t currTick )
+{
+    //LEDToggle(LED_status, PORT_A);
+}
+
+/*******************************************************************
+ * Interrupt service routine: external Interrupt - Trigger usbCLK  *
+ *******************************************************************/
+void TriggerCallBack () {
+    if (firstTriggerFlag==0) {
+        // für 1 sec timer2 starten -> grünes blinken
+        //timerVal = DRV_TMR0_CounterValueGet();
+        //if (timerVal <187500) {
+        DRV_TMR1_Start();
+        firstTriggerFlag=1;
+    }
+    else {
+        DRV_TMR1_Stop();
+    } 
+}
+
+// *****************************************************************************
+// *****************************************************************************
+// Section: Application Local Functions
+// *****************************************************************************
+// *****************************************************************************
+void LEDToggle(LEDS led, PORTS port)
+{
+               
+    PLIB_PORTS_PinToggle(PORTS_ID_0, port, led );
+}
+
+void LEDOn(LEDS led, PORTS port)
+{
+    PLIB_PORTS_PinClear(PORTS_ID_0, port, led );
+ 
+}
+
+void LEDOff(LEDS led, PORTS port)
+{
+    PLIB_PORTS_PinSet(PORTS_ID_0, port, led );
+}
+/*******************************************************************
+ * Function:	void flushBuffer (unsigned char*, unsigned char)   *
+ *******************************************************************/
+void flushBuffer (unsigned char* data, unsigned int length)
+{
+	unsigned int i;
+	for (i=0; i < length; i++)
+		data[i] = 0x00;
+}
+
+// *****************************************************************************
+// *****************************************************************************
+// Section: Application Initialization and State Machine Functions
+// *****************************************************************************
+// *****************************************************************************
+
+int LED_Initialize(void )
+{
+    /* Switch off all the LEDS */ 
+    PLIB_PORTS_PinClear( PORTS_ID_0, PORT_CHANNEL_A, LED_status );
+    PLIB_PORTS_PinClear( PORTS_ID_0, PORT_CHANNEL_B, LED_power );
+    return 1;
+}
+
+void spi_Initialize ( void )
+{
+    spiAppData.state = SPI_ENABLE;
+}
+
+/* Setup OCMP 1 module - Use timer 2, output is an edge aligned signal,
+      disable PWM faults, duty cycle and compare values will have 16-bit values,
+      buffer value is set to 0, pulse width (duty cycle) value is set to 500
+      - The PWM remains high until the timer reaches 500. The PWM then goes
+      - low until the timer hits its period of 2000, rolling over to repeat
+      - the process again. 500/2,000 = 25% Duty Cycle */
+//void OC_Initialize (void) { 
+//    PLIB_PORTS_RemapOutput(PORTS_ID_0, OUTPUT_FUNC_OC1, OUTPUT_PIN_RPB3);
+//    PLIB_PORTS_DirectionOutputSet(PORTS_ID_0, PORT_CHANNEL_B, PORTS_BIT_POS_3);
+//            
+//     /* Stellen Sie die PBCLK Teiler 2 und aktivieren PBCLK3 (f?r Timer 2) */
+//    PLIB_OSC_PBClockDivisorSet (OSC_ID_0, OSC_PERIPHERAL_BUS_1, 2); // Teilungsfaktor 2 ist, so dass die Frequenz des Bus-Timer 24mhz
+//    PLIB_OSC_PBOutputClockEnable (OSC_ID_0, OSC_PERIPHERAL_BUS_1);
+//
+//    PLIB_OC_TimerSelect(OC_ID_1, OC_TIMER_16BIT_TMR2);
+//    PLIB_OC_ModeSelect(OC_ID_1, OC_COMPARE_PWM_EDGE_ALIGNED_MODE);
+//    PLIB_OC_FaultInputSelect(OC_ID_1, OC_FAULT_DISABLE);
+//    PLIB_OC_BufferSizeSelect(OC_ID_1, OC_BUFFER_SIZE_16BIT);
+//    PLIB_OC_Buffer16BitSet(OC_ID_1, 0);
+//    PLIB_OC_PulseWidth16BitSet(OC_ID_1, 0);
+//    
+//    PLIB_OC_Enable(OC_ID_1);
+//    PLIB_TMR_Start(TMR_ID_2);
+//     /*Enable timer 2 interrupts*/
+//    //PLIB_INT_Enable(INT_ID_0);
+//    
+//    PLIB_OC_PulseWidth16BitSet(OC_ID_1,13000); //33% Duty
+//
+//}
+
+/*******************************************************************************
+  Function:
+    void APP_Initialize ( void )
+
+  Remarks:
+    See prototype in app.h.
+ */
+
+void APP_Initialize ( void )
+{
+    
+    /* Place the App state machine in its initial state. */
+    appData.state = APP_STATE_INIT;
+    
+    CH1_CH2_ENABLE();
+    
+    
+    InitChk += usb_Initialize();
+    InitChk += Timer_Initialize();
+    InitChk += i2c_Initialize();
+    InitChk += LED_Initialize();  
+    InitChk += dma_Initialize(); 
+    //OC_Initialize();
+    
+    spi_Initialize();
+    
+    startI2CTransfer = true;
+}
+
+
+/******************************************************************************
+  Function:
+    void APP_Tasks ( void )
+
+  Remarks:
+    See prototype in app.h.
+ */
+
+void APP_Tasks ( void )
+{
+    /* Check the application's current state. */
+    switch ( appData.state )
+    {
+        /* Application's initial state. */
+        case APP_STATE_INIT:
+        {
+            // Check if all initializations are completed 
+            // If every modules are OK, then Power LED is turned ON
+            if (InitChk == 5)
+            {
+                LEDOn(LED_power, PORT_B);
+            }
+            appData.state = APP_STATE_MAIN_TASK;
+        }
+        
+        // usbEMG main service routine
+        case APP_STATE_MAIN_TASK:
+        {
+            usbService();
+            i2cService();
+            timerService();
+            spiService();            
+            break;
+        }
+        
+        //In case of usbEMG device needs to be reset!!!
+        case APP_STATE_RESET:    
+        {
+            InitChk = 0;
+            APP_Initialize ();
+            appData.state = APP_STATE_INIT;
+        }
+        case APP_STATE_ERROR:
+        {
+            break;
+        }
+        /* The default state should never be executed. */
+        default:
+        {
+            /* TODO: Handle error in application's state machine. */
+            break;
+        }
+    }
+}
+ 
+
+/*******************************************************************************
+ End of File
+ */

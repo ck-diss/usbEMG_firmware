@@ -1,0 +1,169 @@
+#include "app.h"
+
+/***********************************************************************************
+ * Function:        void ADS1299Init (void)
+ *
+ * Overview:        This function initializes the ADS1298 with fixed data.
+ **********************************************************************************/
+void ADS1299Init(void)
+{
+	ADS1299_START = 0;
+	ADS1299_RESET = 1;
+	ADS1299_PWDN = 1;					// initial pin settings
+
+	delay_ms(100);						// let the ADS start for sure
+    
+    ADS1299_RESET = 0;
+	delay_us(1);
+	ADS1299_RESET = 1;
+	delay_us(10);						// reset the device
+
+	ADS1299_PWDN = 1;					
+	delay_ms(10);						// power up device
+
+	ADS_WriteCOM(WAKEUP);
+	delay_ms(10);						// wake the device up
+
+	ADS_WriteCOM(SDATAC);
+	delay_us(2);						// stop reading ads data continuously
+    
+    ADS_WriteREG(CONFIG1, 0b10110001);		// High-Resolution - 8 kSPS
+                                        // 7:1
+                                        // 6: Daisy_en 0=enabled 
+                                        // 5: CLK_EN 1=oscillator clock output
+                                        // 4:3: must be '10'
+                                        // 2:0 data rate 001=8kSPS
+	ADS_WriteREG(CONFIG2, 0b11000000);		
+                                        // 7:5: must be '110'
+                                        // 4: test source 0=extern
+                                        // 3: must be '0'
+                                        // 2: test signal amp -> 0 2.4mV (default)
+                                        // 1:0 testsign. frequency '00' fclk/2^21 (default)
+	ADS_WriteREG(CONFIG3, 0b01110000);	// 	7: PD_REFBUF ..... 0 ... power down internal reference buffer
+	//						76543210       	6:5 always 1
+	//										4: BIAS_MEAS ...... 1 ... Bias_in is routed for measurement
+	//										3: BIASREF_INT .... 0 ... reference fed externally
+	//										2: BIAS buffer power ........ 0 ... power down RLD buffer
+	//										1: BIAS_LOFF_SENS . 0 ... RLD sense function is disabled
+	//										0: BIAS_STAT ...... 0 ... RLD lead off status - connected
+	delay_us(9);
+	ADS_WriteREG(LOFF, 0x00);			// disable lead off
+
+	ADS_WriteREG(CH1SET, 0x10);				// 	7: PD ..... 0 ... power down normal operation
+	//                 0b00010000
+    //					 76543210       	6:4 gain -> set to 2 
+	//										3: Source, reference bias channel .... 0 ... open default
+	//										2:0 MUXn[2:0]: Channel input........ 000 ... normal electrod input
+	ADS_WriteREG(CH2SET, 0x10);			// gain 2
+	ADS_WriteREG(CH3SET, 0x10);			// gain 2
+	ADS_WriteREG(CH4SET, 0x10);			// gain 2
+	ADS_WriteREG(CH5SET, 0x10);			// gain 2
+	ADS_WriteREG(CH6SET, 0x10);			// gain 2
+	ADS_WriteREG(CH7SET, 0x10);			// gain 2
+	ADS_WriteREG(CH8SET, 0x10);			// gain 2
+
+	ADS_WriteREG(RLD_SENSP, 0x00);		// disable all channels
+	ADS_WriteREG(RLD_SENSN, 0x00);		// disable all channels
+	ADS_WriteREG(LOFF_SENSP, 0x00);		// disable all channels
+	ADS_WriteREG(LOFF_SENSN, 0x00);		// disable all channels
+	ADS_WriteREG(LOFF_FLIP, 0x00);
+
+	ADS_WriteREG(GPIO, 0x0F);
+	ADS_WriteREG(MISC1, 0x00);
+	ADS_WriteREG(MISC2, 0x00);
+	delay_us(9);
+	ADS_WriteREG(CONFIG4, 0x00);		//
+	//ADS_WriteREG(WCT1, 0x00); 
+	//ADS_WriteREG(WCT2, 0x00);	
+    
+    //ADS_ReadREG(CONFIG1,&RXbuffer[0],1);
+
+	delay_ms(10);
+}	
+/***********************************************************************************
+ * Function:	void ADS_ReadREG (unsigned char reg, unsigned char *data, unsigned char len)
+ *
+ * Overview:	This function reads one specific register of the ADS1299.
+ **********************************************************************************/
+void ADS_ReadREG (unsigned char reg, unsigned char *rxBuffer, unsigned char len)
+{
+	unsigned char temp [2];
+	temp [0] = RREG | (reg & 0x1F);		// write register op-code
+	temp [1] = (len-1) & 0x1F;			// register to read - 1
+    
+	ADS_WriteCOM(SDATAC);				// issue SDATAC command before reading registers
+	delay_us(2);
+
+	APP_SPI_CS_SELECT();
+	delay_us(1);
+
+    DRV_SPI0_BufferAddWriteRead(&temp, &rxBuffer, 2);
+    
+    delay_us(1);
+ 
+    DRV_SPI0_BufferAddWriteRead(&temp, &rxBuffer, len);
+
+	delay_us(2);
+	APP_SPI_CS_DESELECT();
+	delay_us(1);
+}
+/***********************************************************************************
+ * Function:       void ADS_WriteREG (unsigned char reg, unsigned char data)
+ *
+ * Overview:        This function writes one specific register to the ADS1298.
+ **********************************************************************************/
+void ADS_WriteREG (unsigned char reg, unsigned char rxBuffer)
+{
+	unsigned char temp [3];
+	temp [0] = WREG | (reg & 0x1F);		// write register op-code
+	temp [1] = 0x00;					// write one register
+	temp [2] = rxBuffer;
+
+	ADS_WriteCOM(SDATAC);				// issue SDATAC command before reading registers
+	delay_us(2);
+
+	delay_us(2);
+	APP_SPI_CS_SELECT();
+	delay_us(1);
+
+    DRV_SPI0_BufferAddWriteRead(&temp[0], &rxBuffer, 3);
+    
+    delay_us(2);
+	APP_SPI_CS_DESELECT();
+	delay_us(1);
+}	
+/***********************************************************************************
+ * Function:       void ADS_WriteCOM (unsigned char data)
+ *
+ * Overview:       This function writes a command to the ADS1298.
+ **********************************************************************************/
+void ADS_WriteCOM (unsigned char data)
+{
+	unsigned char temp;
+	temp = data;
+	delay_us(2);
+	APP_SPI_CS_SELECT();
+	delay_us(1);
+
+    DRV_SPI0_BufferAddWriteRead(&temp, &rxBuffer, 1);
+
+	delay_us(2);
+	APP_SPI_CS_DESELECT();
+	delay_us(1);	
+}
+
+/*******************************************************************
+ * Interrupt service routine: external Interrupt - ADS Data Ready  *
+ *******************************************************************/
+void DRDYCallBack () {
+    
+    APP_SPI_CS_SELECT();
+
+	samples_cnt++;
+    DCH0DSA = (volatile unsigned long)&rb_buffer[rb_write] & 0x1FFFFFFF;	// destination address to receive
+
+    SYS_DMA_Channel0Enable();
+    SYS_DMA_Channel1Enable();
+
+    SYS_DMA_Channel1ForceStart();
+}
